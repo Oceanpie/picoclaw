@@ -188,6 +188,54 @@ func TestSanitizeHistoryForProvider_PlainConversation(t *testing.T) {
 	assertRoles(t, result, "user", "assistant", "user", "assistant")
 }
 
+func TestSanitizeHistoryForProvider_AssistantToolCallMissingAllResults(t *testing.T) {
+	history := []providers.Message{
+		msg("user", "run tool"),
+		assistantWithTools("A"),
+		msg("assistant", "fallback text"),
+	}
+
+	result := sanitizeHistoryForProvider(history)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 messages, got %d: %+v", len(result), roles(result))
+	}
+	assertRoles(t, result, "user", "assistant")
+}
+
+func TestSanitizeHistoryForProvider_AssistantToolCallIncompleteResults(t *testing.T) {
+	history := []providers.Message{
+		msg("user", "run two tools"),
+		assistantWithTools("A", "B"),
+		toolResult("A"),
+		msg("assistant", "next"),
+	}
+
+	result := sanitizeHistoryForProvider(history)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 messages, got %d: %+v", len(result), roles(result))
+	}
+	assertRoles(t, result, "user", "assistant")
+}
+
+func TestSanitizeHistoryForProvider_DropsBrokenRoundKeepsCompleteRound(t *testing.T) {
+	history := []providers.Message{
+		msg("user", "first"),
+		assistantWithTools("A", "B"),
+		toolResult("A"),
+		msg("assistant", "after broken round"),
+		msg("user", "second"),
+		assistantWithTools("C"),
+		toolResult("C"),
+		msg("assistant", "done"),
+	}
+
+	result := sanitizeHistoryForProvider(history)
+	if len(result) != 6 {
+		t.Fatalf("expected 6 messages, got %d: %+v", len(result), roles(result))
+	}
+	assertRoles(t, result, "user", "assistant", "user", "assistant", "tool", "assistant")
+}
+
 func roles(msgs []providers.Message) []string {
 	r := make([]string, len(msgs))
 	for i, m := range msgs {

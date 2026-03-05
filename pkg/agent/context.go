@@ -602,7 +602,52 @@ func sanitizeHistoryForProvider(history []providers.Message) []providers.Message
 		}
 	}
 
-	return sanitized
+	final := make([]providers.Message, 0, len(sanitized))
+	for i := 0; i < len(sanitized); i++ {
+		msg := sanitized[i]
+		if msg.Role != "assistant" || len(msg.ToolCalls) == 0 {
+			final = append(final, msg)
+			continue
+		}
+
+		expected := make(map[string]bool, len(msg.ToolCalls))
+		for _, tc := range msg.ToolCalls {
+			expected[tc.ID] = false
+		}
+
+		for j := i + 1; j < len(sanitized); j++ {
+			next := sanitized[j]
+			if next.Role != "tool" {
+				break
+			}
+			if _, ok := expected[next.ToolCallID]; ok {
+				expected[next.ToolCallID] = true
+			}
+		}
+
+		allFound := true
+		for _, found := range expected {
+			if !found {
+				allFound = false
+				break
+			}
+		}
+		if !allFound {
+			logger.DebugCF(
+				"agent",
+				"Dropping assistant tool-call turn with incomplete tool results",
+				map[string]any{"tool_calls": len(expected)},
+			)
+			for i+1 < len(sanitized) && sanitized[i+1].Role == "tool" {
+				i++
+			}
+			continue
+		}
+
+		final = append(final, msg)
+	}
+
+	return final
 }
 
 func (cb *ContextBuilder) AddToolResult(
